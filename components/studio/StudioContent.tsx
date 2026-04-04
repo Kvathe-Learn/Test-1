@@ -63,7 +63,8 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [result, setResult] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState('');
 
   const handleGenerate = async () => {
