@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Auth Models ───
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  accounts      Account[]
+  sessions      Session[]
+  contents      Content[]
+  templates     Template[]
+  brandKit      BrandKit?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Content Models ───
+enum ContentType {
+  IMAGE_POST
+  CAROUSEL
+  STORY
+  REEL
+  TIKTOK
+}
+
+enum ContentStatus {
+  DRAFT
+  READY
+  POSTED
+  ARCHIVED
+}
+
+enum Platform {
+  INSTAGRAM
+  TIKTOK
+  BOTH
+}
+
+model Content {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title       String
+  type        ContentType
+  platform    Platform      @default(BOTH)
+  status      ContentStatus @default(DRAFT)
+  
+  // AI Generated content
+  caption     String?       @db.Text
+  hashtags    String[]
+  hookText    String?       @db.Text
+  script      String?       @db.Text
+  
+  // Media
+  mediaUrls   String[]
+  thumbnailUrl String?
+  
+  // Metadata
+  topic       String?
+  prompt      String?       @db.Text
+  aiModel     String?
+  
+  // Scheduling
+  scheduledAt DateTime?
+  postedAt    DateTime?
+  
+  // Slides for carousels
+  slides      Slide[]
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, type])
+  @@index([userId, createdAt])
+}
+
+model Slide {
+  id        String  @id @default(cuid())
+  contentId String
+  content   Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  
+  order     Int
+  imageUrl  String?
+  text      String? @db.Text
+  
+  createdAt DateTime @default(now())
+
+  @@index([contentId, order])
+}
+
+// ─── Templates ───
+model Template {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  type        ContentType
+  platform    Platform    @default(BOTH)
+  
+  // Prompt template
+  promptTemplate String   @db.Text
+  styleGuide     String?  @db.Text
+  
+  // Example hashtags
+  defaultHashtags String[]
+  
+  isActive    Boolean     @default(true)
+  usageCount  Int         @default(0)
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([userId, isActive])
+}
+
+// ─── Brand Kit ───
+model BrandKit {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  brandName   String?
+  tagline     String?
+  
+  // Colors (stored as hex)
+  primaryColor   String @default("#4c6ef5")
+  secondaryColor String @default("#748ffc")
+  accentColor    String @default("#ff6b6b")
+  backgroundColor String @default("#ffffff")
+  textColor      String @default("#212529")
+  
+  // Voice & Style
+  toneOfVoice String?  @db.Text  // e.g., "Professional but approachable, tech-savvy"
+  targetAudience String? @db.Text
+  contentPillars String[] // e.g., ["AI News", "Tutorials", "Industry Insights"]
+  
+  // Visual preferences
+  visualStyle  String?  @db.Text  // e.g., "Minimalist, dark backgrounds, neon accents"
+  fontPreference String? // e.g., "Modern sans-serif"
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
