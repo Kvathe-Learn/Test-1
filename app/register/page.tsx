@@ -8,7 +8,8 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import { RiLoader4Line, RiArrowRightLine } from "react-icons/ri";
 
-export default function LoginPage() {
+export default function RegisterPage() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,23 +17,42 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const res = await signIn("credentials", {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Registration failed");
+      }
+
+      // Auto-login after registration
+      const signInRes = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
 
-      if (res?.error) {
-        toast.error("Invalid credentials");
+      if (signInRes?.error) {
+        toast.error("Registered but login failed. Please login manually.");
+        router.push("/login");
       } else {
+        toast.success("Account created");
         router.push("/studio");
         router.refresh();
       }
-    } catch {
-      toast.error("Something went wrong");
+    } catch (err: any) {
+      toast.error(err.message || "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -40,7 +60,31 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-forge-black flex">
-      {/* Left - form */}
+      {/* Left - visual panel (desktop only) */}
+      <div className="hidden lg:flex flex-1 bg-forge-dark border-r border-forge-steel/30 items-center justify-center relative overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            background: "radial-gradient(circle 500px at 40% 60%, rgba(255,77,0,0.2), transparent)",
+          }}
+        />
+        <div className="relative z-10 text-center">
+          <motion.h2
+            className="font-display text-display-lg text-forge-white"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1, delay: 0.3 }}
+          >
+            START
+            <br />
+            <span className="text-stroke text-forge-accent">CREATING</span>
+            <br />
+            TODAY
+          </motion.h2>
+        </div>
+      </div>
+
+      {/* Right - form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <motion.div
           className="w-full max-w-sm"
@@ -52,10 +96,22 @@ export default function LoginPage() {
             CONTENT<span className="text-forge-accent">FORGE</span>
           </Link>
           <p className="font-mono text-xs tracking-[0.3em] text-forge-smoke uppercase mb-12">
-            ENTER THE STUDIO
+            CREATE YOUR ACCOUNT
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-8">
+            <div>
+              <label className="label-forge">NAME</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="input-forge"
+                placeholder="YOUR NAME"
+              />
+            </div>
+
             <div>
               <label className="label-forge">EMAIL</label>
               <input
@@ -75,8 +131,9 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={6}
                 className="input-forge"
-                placeholder="••••••••"
+                placeholder="MIN 6 CHARACTERS"
               />
             </div>
 
@@ -90,7 +147,7 @@ export default function LoginPage() {
                   <RiLoader4Line className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    LOGIN
+                    CREATE ACCOUNT
                     <RiArrowRightLine className="w-4 h-4" />
                   </>
                 )}
@@ -99,39 +156,15 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-8 text-center">
-            <span className="font-mono text-xs text-forge-smoke">NO ACCOUNT? </span>
+            <span className="font-mono text-xs text-forge-smoke">HAVE AN ACCOUNT? </span>
             <Link
-              href="/register"
+              href="/login"
               className="font-display text-xs tracking-[0.2em] text-forge-accent hover:text-forge-accent-hover transition-colors"
             >
-              REGISTER
+              LOGIN
             </Link>
           </p>
         </motion.div>
-      </div>
-
-      {/* Right - visual panel (desktop only) */}
-      <div className="hidden lg:flex flex-1 bg-forge-dark border-l border-forge-steel/30 items-center justify-center relative overflow-hidden">
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            background: "radial-gradient(circle 500px at 60% 40%, rgba(255,77,0,0.2), transparent)",
-          }}
-        />
-        <div className="relative z-10 text-center">
-          <motion.h2
-            className="font-display text-display-lg text-forge-white"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1, delay: 0.3 }}
-          >
-            FORGE
-            <br />
-            <span className="text-stroke text-forge-accent">YOUR</span>
-            <br />
-            CONTENT
-          </motion.h2>
-        </div>
       </div>
     </div>
   );

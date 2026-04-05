@@ -1,183 +1,99 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/session";
+import prisma from "@/lib/db";
 
-// GET - List all content for user
+// GET - list content
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);
-    const type = searchParams.get('type');
-    const status = searchParams.get('status');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const type = searchParams.get("type");
+    const search = searchParams.get("search");
 
-    const where: Record<string, unknown> = { userId: session.user.id };
+    const where: any = { userId: user.id };
     if (type) where.type = type;
-    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { body: { contains: search, mode: "insensitive" } },
+      ];
+    }
 
-    const [contents, total] = await Promise.all([
-      db.content.findMany({
-        where,
-        include: { slides: { orderBy: { order: 'asc' } } },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      db.content.count({ where }),
-    ]);
+    const items = await prisma.content.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
 
-    return NextResponse.json({ success: true, data: { contents, total } });
-  } catch (error: unknown) {
-    console.error('Content fetch error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to fetch content';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(items);
+  } catch (error) {
+    console.error("Content fetch error:", error);
+    return NextResponse.json({ error: "Failed to fetch content" }, { status: 500 });
   }
 }
 
-// POST - Create new content
+// POST - save content
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const {
-      title,
-      type,
-      platform,
-      caption,
-      hashtags,
-      hookText,
-      script,
-      mediaUrls,
-      thumbnailUrl,
-      topic,
-      prompt,
-      aiModel,
-      status,
-      slides,
-    } = body;
+    const { title, body, imageUrl, type, tone, prompt } = await req.json();
 
-    if (!title || !type) {
-      return NextResponse.json(
-        { error: 'Missing required fields: title, type' },
-        { status: 400 }
-      );
-    }
-
-    const content = await db.content.create({
+    const content = await prisma.content.create({
       data: {
-        userId: session.user.id,
-        title,
-        type,
-        platform: platform || 'BOTH',
-        caption,
-        hashtags: hashtags || [],
-        hookText,
-        script,
-        mediaUrls: mediaUrls || [],
-        thumbnailUrl,
-        topic,
-        prompt,
-        aiModel,
-        status: status || 'DRAFT',
-        slides: slides?.length
-          ? {
-              create: slides.map((s: { order: number; imageUrl?: string; text?: string }) => ({
-                order: s.order,
-                imageUrl: s.imageUrl,
-                text: s.text,
-              })),
-            }
-          : undefined,
+        title: title || "Untitled",
+        body: body || null,
+        imageUrl: imageUrl || null,
+        type: type || "General",
+        tone: tone || null,
+        prompt: prompt || null,
+        userId: user.id,
       },
-      include: { slides: { orderBy: { order: 'asc' } } },
     });
 
-    return NextResponse.json({ success: true, data: content }, { status: 201 });
-  } catch (error: unknown) {
-    console.error('Content create error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create content';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(content, { status: 201 });
+  } catch (error) {
+    console.error("Content save error:", error);
+    return NextResponse.json({ error: "Failed to save content" }, { status: 500 });
   }
 }
 
-// PATCH - Update content
-export async function PATCH(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await req.json();
-    const { id, ...updateData } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: 'Missing content id' }, { status: 400 });
-    }
-
-    // Verify ownership
-    const existing = await db.content.findFirst({
-      where: { id, userId: session.user.id },
-    });
-
-    if (!existing) {
-      return NextResponse.json({ error: 'Content not found' }, { status: 404 });
-    }
-
-    const content = await db.content.update({
-      where: { id },
-      data: updateData,
-      include: { slides: { orderBy: { order: 'asc' } } },
-    });
-
-    return NextResponse.json({ success: true, data: content });
-  } catch (error: unknown) {
-    console.error('Content update error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to update content';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-
-// DELETE - Delete content
+// DELETE - delete content
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
+    const id = searchParams.get("id");
 
     if (!id) {
-      return NextResponse.json({ error: 'Missing content id' }, { status: 400 });
+      return NextResponse.json({ error: "ID required" }, { status: 400 });
     }
 
     // Verify ownership
-    const existing = await db.content.findFirst({
-      where: { id, userId: session.user.id },
+    const content = await prisma.content.findFirst({
+      where: { id, userId: user.id },
     });
 
-    if (!existing) {
-      return NextResponse.json({ error: 'Content not found' }, { status: 404 });
+    if (!content) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    await db.content.delete({ where: { id } });
+    await prisma.content.delete({ where: { id } });
 
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    console.error('Content delete error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to delete content';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    console.error("Content delete error:", error);
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
   }
 }

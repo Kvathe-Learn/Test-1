@@ -5,9 +5,24 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// ─── Auth Models ───
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String    @unique
+  hashedPassword String?
+  image          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  contents  Content[]
+  brandKits BrandKit[]
+  accounts  Account[]
+  sessions  Session[]
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -21,7 +36,8 @@ model Account {
   scope             String?
   id_token          String? @db.Text
   session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -31,23 +47,8 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
 
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  accounts      Account[]
-  sessions      Session[]
-  contents      Content[]
-  templates     Template[]
-  brandKit      BrandKit?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -58,134 +59,50 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// ─── Content Models ───
-enum ContentType {
-  IMAGE_POST
-  CAROUSEL
-  STORY
-  REEL
-  TIKTOK
-}
-
-enum ContentStatus {
-  DRAFT
-  READY
-  POSTED
-  ARCHIVED
-}
-
-enum Platform {
-  INSTAGRAM
-  TIKTOK
-  BOTH
-}
-
 model Content {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  title       String
-  type        ContentType
-  platform    Platform      @default(BOTH)
-  status      ContentStatus @default(DRAFT)
-  
-  // AI Generated content
-  caption     String?       @db.Text
-  hashtags    String[]
-  hookText    String?       @db.Text
-  script      String?       @db.Text
-  
-  // Media
-  mediaUrls   String[]
-  thumbnailUrl String?
-  
-  // Metadata
-  topic       String?
-  prompt      String?       @db.Text
-  aiModel     String?
-  
-  // Scheduling
-  scheduledAt DateTime?
-  postedAt    DateTime?
-  
-  // Slides for carousels
-  slides      Slide[]
-  
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@index([userId, status])
-  @@index([userId, type])
-  @@index([userId, createdAt])
-}
-
-model Slide {
-  id        String  @id @default(cuid())
-  contentId String
-  content   Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
-  
-  order     Int
-  imageUrl  String?
-  text      String? @db.Text
-  
+  id        String   @id @default(cuid())
+  title     String
+  body      String?  @db.Text
+  imageUrl  String?  @db.Text
+  type      String   @default("General")
+  tone      String?
+  prompt    String?  @db.Text
+  userId    String
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([contentId, order])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
 }
 
-// ─── Templates ───
 model Template {
-  id          String      @id @default(cuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  name        String
-  description String?
-  type        ContentType
-  platform    Platform    @default(BOTH)
-  
-  // Prompt template
-  promptTemplate String   @db.Text
-  styleGuide     String?  @db.Text
-  
-  // Example hashtags
-  defaultHashtags String[]
-  
-  isActive    Boolean     @default(true)
-  usageCount  Int         @default(0)
-  
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@index([userId, isActive])
+  id             String  @id @default(cuid())
+  name           String
+  description    String? @db.Text
+  category       String
+  promptTemplate String  @db.Text
+  tone           String?
+  contentType    String
+  createdAt      DateTime @default(now())
 }
 
-// ─── Brand Kit ───
 model BrandKit {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  brandName   String?
-  tagline     String?
-  
-  // Colors (stored as hex)
-  primaryColor   String @default("#4c6ef5")
-  secondaryColor String @default("#748ffc")
-  accentColor    String @default("#ff6b6b")
-  backgroundColor String @default("#ffffff")
-  textColor      String @default("#212529")
-  
-  // Voice & Style
-  toneOfVoice String?  @db.Text  // e.g., "Professional but approachable, tech-savvy"
-  targetAudience String? @db.Text
-  contentPillars String[] // e.g., ["AI News", "Tutorials", "Industry Insights"]
-  
-  // Visual preferences
-  visualStyle  String?  @db.Text  // e.g., "Minimalist, dark backgrounds, neon accents"
-  fontPreference String? // e.g., "Modern sans-serif"
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  brandName      String   @default("")
+  brandVoice     String   @default("") @db.Text
+  targetAudience String   @default("")
+  keywords       String[] @default([])
+  avoidWords     String[] @default([])
+  colorPrimary   String   @default("#FF4D00")
+  colorSecondary String   @default("#0A0A0A")
+  industry       String   @default("")
+  userId         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

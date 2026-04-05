@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import prisma from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,46 +8,41 @@ export async function POST(req: NextRequest) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: 'Email and password are required' },
+        { error: "Email and password required" },
         { status: 400 }
       );
     }
 
-    const existingUser = await db.user.findUnique({ where: { email } });
-    if (existingUser) {
+    const existing = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existing) {
       return NextResponse.json(
-        { error: 'User already exists' },
+        { error: "Email already registered" },
         { status: 409 }
       );
     }
 
-    const user = await db.user.create({
-      data: {
-        name: name || email.split('@')[0],
-        email,
-        password, // In production, hash with bcrypt
-      },
-    });
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create default brand kit
-    await db.brandKit.create({
+    const user = await prisma.user.create({
       data: {
-        userId: user.id,
-        brandName: name || 'My Brand',
-        toneOfVoice: 'Professional but approachable, knowledgeable about tech and AI',
-        targetAudience: 'Tech enthusiasts, developers, AI practitioners (25-40)',
-        contentPillars: ['AI News', 'Tech Tutorials', 'Industry Insights', 'Tools & Reviews'],
-        visualStyle: 'Modern minimalist, dark backgrounds, vibrant accent colors',
+        name: name || null,
+        email,
+        hashedPassword,
       },
     });
 
     return NextResponse.json(
-      { success: true, data: { id: user.id, email: user.email, name: user.name } },
+      { id: user.id, email: user.email, name: user.name },
       { status: 201 }
     );
-  } catch (error: unknown) {
-    console.error('Registration error:', error);
-    const message = error instanceof Error ? error.message : 'Registration failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    console.error("Registration error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
