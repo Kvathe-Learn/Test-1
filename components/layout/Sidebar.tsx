@@ -6,16 +6,6 @@ import { signOut, useSession } from "next-auth/react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  HiOutlineSparkles,
-  HiOutlinePhoto,
-  HiOutlineArchiveBox,
-  HiOutlineRectangleStack,
-  HiOutlineSwatchIcon,
-  HiOutlineArrowRightOnRectangle,
-  HiOutlineBars3,
-  HiOutlineXMark,
-} from "react-icons/hi2";
-import {
   RiSparklingLine,
   RiImageLine,
   RiArchiveLine,
