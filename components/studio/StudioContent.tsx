@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
   ImageIcon,
@@ -16,6 +16,7 @@ import {
   Hash,
   Type,
   RefreshCw,
+  Image as ImageLucide,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -54,17 +55,20 @@ const platforms = [
 
 export function StudioContent({ brandKit, templates }: StudioContentProps) {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const initialType = searchParams.get('type') || 'IMAGE_POST';
 
   const [contentType, setContentType] = useState(initialType);
   const [platform, setPlatform] = useState('BOTH');
   const [topic, setTopic] = useState('');
+  const [generateImage, setGenerateImage] = useState(true);
+  const [imageStyle, setImageStyle] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<Record<string, any> | null>(null);
+  const [generatedImages, setGeneratedImages] = useState<{ url: string }[]>([]);
   const [error, setError] = useState('');
 
   const handleGenerate = async () => {
@@ -73,10 +77,12 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
     setIsGenerating(true);
     setError('');
     setResult(null);
+    setGeneratedImages([]);
     setSaved(false);
 
     try {
-      const res = await fetch('/api/generate/text', {
+      // Step 1: Generate text content
+      const textRes = await fetch('/api/generate/text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -89,12 +95,42 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Generation failed');
-      setResult(data.data);
+      const textData = await textRes.json();
+      if (!textRes.ok) throw new Error(textData.error || 'Text generation failed');
+      setResult(textData.data);
+      setIsGenerating(false);
+
+      // Step 2: Generate image (if enabled and applicable)
+      if (generateImage && (contentType === 'IMAGE_POST' || contentType === 'CAROUSEL' || contentType === 'STORY')) {
+        setIsGeneratingImage(true);
+        try {
+          const imagePrompt = `${topic}. ${imageStyle || 'Modern tech aesthetic, professional, clean design for social media'}`;
+          const size = contentType === 'STORY' ? '1024x1536' : '1024x1024';
+
+          const imgRes = await fetch('/api/generate/image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: imagePrompt,
+              size,
+              quality: 'medium',
+              contentType,
+              n: contentType === 'CAROUSEL' ? 1 : 1,
+            }),
+          });
+
+          const imgData = await imgRes.json();
+          if (imgRes.ok && imgData.data?.images) {
+            setGeneratedImages(imgData.data.images);
+          }
+        } catch {
+          // Image generation failed silently — text is still available
+        } finally {
+          setIsGeneratingImage(false);
+        }
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
       setIsGenerating(false);
     }
   };
@@ -104,11 +140,11 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
     setIsSaving(true);
 
     try {
-      const caption = (result.caption as string) || '';
-      const hashtags = (result.hashtags as string[]) || [];
-      const hookText = (result.hookText as string) || '';
-      const script = (result.fullScript as string) || (result.script as string) || '';
-      const slides = (result.slides as Array<Record<string, unknown>>) || [];
+      const caption = result.caption || '';
+      const hashtags = result.hashtags || [];
+      const hookText = result.hookText || '';
+      const script = result.fullScript || result.script || '';
+      const slides = result.slides || [];
 
       const res = await fetch('/api/content', {
         method: 'POST',
@@ -121,12 +157,15 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
           hashtags,
           hookText,
           script: typeof script === 'string' ? script : JSON.stringify(script),
+          mediaUrls: generatedImages.map((img) => img.url),
+          thumbnailUrl: generatedImages[0]?.url || null,
           topic,
           aiModel: 'gpt-4.1',
           status: 'DRAFT',
-          slides: slides.map((s, i) => ({
-            order: (s.order as number) || i + 1,
+          slides: slides.map((s: any, i: number) => ({
+            order: s.order || i + 1,
             text: `${s.headline || ''}\n\n${s.body || ''}`.trim(),
+            imageUrl: generatedImages[i]?.url || null,
           })),
         }),
       });
@@ -141,8 +180,55 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
     }
   };
 
+  const handleRegenerateImage = async () => {
+    if (!topic.trim()) return;
+    setIsGeneratingImage(true);
+    setGeneratedImages([]);
+
+    try {
+      const imagePrompt = `${topic}. ${imageStyle || 'Modern tech aesthetic, professional, clean design for social media'}`;
+      const size = contentType === 'STORY' ? '1024x1536' : '1024x1024';
+
+      const imgRes = await fetch('/api/generate/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: imagePrompt,
+          size,
+          quality: 'medium',
+          contentType,
+          n: 1,
+        }),
+      });
+
+      const imgData = await imgRes.json();
+      if (imgRes.ok && imgData.data?.images) {
+        setGeneratedImages(imgData.data.images);
+      }
+    } catch {
+      // silent
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  const downloadImage = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `contentforge-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -153,7 +239,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
           <Sparkles className="w-6 h-6 text-brand-400" />
           Content Studio
         </h1>
-        <p className="text-surface-400 mt-1">Generate professional content with AI</p>
+        <p className="text-surface-400 mt-1">Generate complete posts with AI — text, images & more</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
@@ -237,6 +323,40 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
             )}
           </div>
 
+          {/* Image Generation Toggle */}
+          {(contentType === 'IMAGE_POST' || contentType === 'CAROUSEL' || contentType === 'STORY') && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-surface-300 flex items-center gap-2">
+                  <ImageLucide className="w-4 h-4 text-brand-400" />
+                  Generate Image
+                </label>
+                <button
+                  onClick={() => setGenerateImage(!generateImage)}
+                  className={cn(
+                    'w-11 h-6 rounded-full transition-all relative',
+                    generateImage ? 'bg-brand-600' : 'bg-white/10'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all',
+                      generateImage ? 'left-[22px]' : 'left-0.5'
+                    )}
+                  />
+                </button>
+              </div>
+              {generateImage && (
+                <input
+                  value={imageStyle}
+                  onChange={(e) => setImageStyle(e.target.value)}
+                  className="input-field text-sm"
+                  placeholder="Image style (optional): e.g., dark background, neon accents, minimalist..."
+                />
+              )}
+            </div>
+          )}
+
           {/* Generate Button */}
           <button
             onClick={handleGenerate}
@@ -246,12 +366,12 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
             {isGenerating ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Generating...
+                Generating Content...
               </>
             ) : (
               <>
                 <Sparkles className="w-5 h-5" />
-                Generate Content
+                Generate Complete Post
               </>
             )}
           </button>
@@ -274,7 +394,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                 Your content will appear here
               </h3>
               <p className="text-sm text-surface-600 mt-1 max-w-sm">
-                Enter a topic and click Generate to create AI-powered content
+                Enter a topic and click Generate to create a complete post with text & image
               </p>
             </div>
           )}
@@ -283,7 +403,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
             <div className="card flex flex-col items-center justify-center py-20">
               <Loader2 className="w-10 h-10 text-brand-400 animate-spin mb-4" />
               <p className="text-surface-400">Crafting your content...</p>
-              <p className="text-xs text-surface-600 mt-1">This takes 10-20 seconds</p>
+              <p className="text-xs text-surface-600 mt-1">Generating caption, hashtags & hook</p>
             </div>
           )}
 
@@ -292,7 +412,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
               {/* Action Bar */}
               <div className="flex items-center gap-2">
                 <button onClick={handleGenerate} className="btn-secondary text-sm">
-                  <RefreshCw className="w-4 h-4" /> Regenerate
+                  <RefreshCw className="w-4 h-4" /> Regenerate All
                 </button>
                 <button
                   onClick={handleSave}
@@ -309,6 +429,43 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                 </button>
               </div>
 
+              {/* Generated Image */}
+              {(isGeneratingImage || generatedImages.length > 0) && (
+                <div className="card p-2">
+                  {isGeneratingImage ? (
+                    <div className="flex flex-col items-center justify-center py-16 rounded-xl bg-white/5">
+                      <Loader2 className="w-8 h-8 text-brand-400 animate-spin mb-3" />
+                      <p className="text-sm text-surface-400">Generating image...</p>
+                      <p className="text-xs text-surface-600 mt-1">This takes 10-30 seconds</p>
+                    </div>
+                  ) : (
+                    generatedImages.map((img, idx) => (
+                      <div key={idx} className="relative group rounded-xl overflow-hidden">
+                        <img
+                          src={img.url}
+                          alt={`Generated image ${idx + 1}`}
+                          className="w-full rounded-xl"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                          <button
+                            onClick={() => downloadImage(img.url)}
+                            className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                          >
+                            <Download className="w-5 h-5 text-white" />
+                          </button>
+                          <button
+                            onClick={handleRegenerateImage}
+                            className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                          >
+                            <RefreshCw className="w-5 h-5 text-white" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
               {/* Hook */}
               {result.hookText && (
                 <div className="card">
@@ -318,13 +475,13 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                       <span className="text-sm font-medium">Hook</span>
                     </div>
                     <button
-                      onClick={() => copyToClipboard(result.hookText as string)}
+                      onClick={() => copyToClipboard(result.hookText)}
                       className="btn-ghost p-1.5"
                     >
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <p className="text-white font-medium">{result.hookText as string}</p>
+                  <p className="text-white font-medium">{result.hookText}</p>
                 </div>
               )}
 
@@ -337,48 +494,46 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                       <span className="text-sm font-medium">Caption</span>
                     </div>
                     <button
-                      onClick={() => copyToClipboard(result.caption as string)}
+                      onClick={() => copyToClipboard(result.caption)}
                       className="btn-ghost p-1.5"
                     >
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <p className="text-surface-300 whitespace-pre-wrap text-sm leading-relaxed">
-                    {result.caption as string}
+                    {result.caption}
                   </p>
                 </div>
               )}
 
               {/* Carousel Slides */}
-              {(result.slides as Array<Record<string, string>>)?.length > 0 && (
+              {result.slides?.length > 0 && (
                 <div className="card">
                   <h3 className="text-sm font-medium text-purple-400 mb-3 flex items-center gap-2">
                     <Layers className="w-4 h-4" /> Carousel Slides
                   </h3>
                   <div className="space-y-3">
-                    {(result.slides as Array<Record<string, string>>).map(
-                      (slide, idx) => (
-                        <div
-                          key={idx}
-                          className="p-4 rounded-xl bg-white/5 border border-white/5"
-                        >
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="w-6 h-6 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold">
-                              {(slide.order as unknown as number) || idx + 1}
-                            </span>
-                            <h4 className="text-sm font-semibold text-white">
-                              {slide.headline}
-                            </h4>
-                          </div>
-                          <p className="text-xs text-surface-400 ml-8">{slide.body}</p>
-                          {slide.visualSuggestion && (
-                            <p className="text-xs text-surface-600 mt-1.5 ml-8 italic">
-                              Visual: {slide.visualSuggestion}
-                            </p>
-                          )}
+                    {result.slides.map((slide: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="p-4 rounded-xl bg-white/5 border border-white/5"
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="w-6 h-6 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold">
+                            {slide.order || idx + 1}
+                          </span>
+                          <h4 className="text-sm font-semibold text-white">
+                            {slide.headline}
+                          </h4>
                         </div>
-                      )
-                    )}
+                        <p className="text-xs text-surface-400 ml-8">{slide.body}</p>
+                        {slide.visualSuggestion && (
+                          <p className="text-xs text-surface-600 mt-1.5 ml-8 italic">
+                            Visual: {slide.visualSuggestion}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -394,7 +549,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                     <button
                       onClick={() =>
                         copyToClipboard(
-                          (result.fullScript as string) ||
+                          result.fullScript ||
                             (typeof result.script === 'string'
                               ? result.script
                               : JSON.stringify(result.script, null, 2))
@@ -420,14 +575,14 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                     </div>
                   ) : (
                     <p className="text-sm text-surface-300 whitespace-pre-wrap">
-                      {(result.fullScript as string) || (result.script as string)}
+                      {result.fullScript || result.script}
                     </p>
                   )}
                 </div>
               )}
 
               {/* Hashtags */}
-              {(result.hashtags as string[])?.length > 0 && (
+              {result.hashtags?.length > 0 && (
                 <div className="card">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2 text-cyan-400">
@@ -437,7 +592,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                     <button
                       onClick={() =>
                         copyToClipboard(
-                          (result.hashtags as string[])
+                          result.hashtags
                             .map((h: string) => (h.startsWith('#') ? h : `#${h}`))
                             .join(' ')
                         )
@@ -448,7 +603,7 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {(result.hashtags as string[]).map((tag: string, idx: number) => (
+                    {result.hashtags.map((tag: string, idx: number) => (
                       <span
                         key={idx}
                         className="px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-300 text-xs"
@@ -461,15 +616,15 @@ export function StudioContent({ brandKit, templates }: StudioContentProps) {
               )}
 
               {/* Suggestions */}
-              {(result.suggestions as string[])?.length > 0 && (
+              {result.suggestions?.length > 0 && (
                 <div className="card">
                   <h3 className="text-sm font-medium text-surface-400 mb-2">
-                    💡 AI Suggestions
+                    AI Suggestions
                   </h3>
                   <ul className="space-y-1.5">
-                    {(result.suggestions as string[]).map((s: string, i: number) => (
+                    {result.suggestions.map((s: string, i: number) => (
                       <li key={i} className="text-xs text-surface-500">
-                        • {s}
+                        {s}
                       </li>
                     ))}
                   </ul>
