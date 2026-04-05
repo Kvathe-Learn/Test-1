@@ -42,11 +42,18 @@ export async function POST(req: NextRequest) {
       quality: quality || 'medium',
     });
 
-    const images = (response.data || []).map((img) => ({
-      url: img.url || '',
-      b64_json: img.b64_json || null,
-      revisedPrompt: (img as Record<string, unknown>).revised_prompt as string | undefined,
-    }));
+    const images = (response.data || []).map((img) => {
+      // gpt-image-1 returns b64_json, convert to data URL
+      if (img.b64_json) {
+        return {
+          url: `data:image/png;base64,${img.b64_json}`,
+        };
+      }
+      // Fallback for models that return URLs
+      return {
+        url: img.url || '',
+      };
+    });
 
     return NextResponse.json({ success: true, data: { images } });
   } catch (error: unknown) {
