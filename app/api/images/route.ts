@@ -29,12 +29,12 @@ export async function POST(req: NextRequest) {
       quality: "high",
     });
 
-    const imageData = response.data[0];
+    const imageData = response.data?.[0];
     let imageUrl: string;
 
-    if (imageData.b64_json) {
+    if (imageData?.b64_json) {
       imageUrl = `data:image/png;base64,${imageData.b64_json}`;
-    } else if (imageData.url) {
+    } else if (imageData?.url) {
       imageUrl = imageData.url;
     } else {
       throw new Error("No image data returned");

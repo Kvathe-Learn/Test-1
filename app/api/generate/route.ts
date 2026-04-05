@@ -65,10 +65,10 @@ export async function POST(req: NextRequest) {
         });
 
         // gpt-image-1 returns base64
-        const imageData = imageResponse.data[0];
-        if (imageData.b64_json) {
+        const imageData = imageResponse.data?.[0];
+        if (imageData?.b64_json) {
           imageUrl = `data:image/png;base64,${imageData.b64_json}`;
-        } else if (imageData.url) {
+        } else if (imageData?.url) {
           imageUrl = imageData.url;
         }
       } catch (imgError) {
